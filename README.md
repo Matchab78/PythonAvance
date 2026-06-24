@@ -1,4 +1,10 @@
-## Projet fait par Mathis Chabault et Tom Boulec
+# 🐍 Projet Python Avancé — Application F1 & Rapport Littéraire
+
+Projet en deux parties indépendantes :
+- **Partie 1** — Application desktop Tkinter qui télécharge des données F1 (API OpenF1), les stocke en SQLite et les visualise (classements, graphiques, résultats de saison).
+- **Partie 2** — Pipeline d'analyse littéraire de *Vingt mille lieues sous les mers* (Jules Verne) générant un rapport Word.
+
+---
 
 ## ⚙️ Prérequis
 
@@ -21,6 +27,14 @@ cd python-avance-projet
 pip install requests pillow python-docx matplotlib
 ```
 
+> 💡 Conseil : crée un environnement virtuel et fige les versions pour une réinstallation reproductible.
+> ```bash
+> python -m venv venv
+> # Windows : .\venv\Scripts\Activate.ps1   |   macOS/Linux : source venv/bin/activate
+> pip install requests pillow python-docx matplotlib
+> pip freeze > requirements.txt
+> ```
+
 ---
 
 ## 🏎️ Partie 1 — Application Desktop F1
@@ -28,10 +42,10 @@ pip install requests pillow python-docx matplotlib
 ### Description
 
 Application graphique développée avec **Tkinter** qui :
-- Se connecte à l'**API OpenF1** pour récupérer les données de la dernière course F1 (saison 2024)
-- Stocke les pilotes et leurs temps de tour dans une base **SQLite**
-- Affiche un classement par temps moyen avec les **couleurs officielles des écuries**
-- Génère des **graphiques interactifs** directement dans la fenêtre
+- Se connecte à l'**API OpenF1** pour récupérer les données de la saison F1 2024
+- Stocke pilotes, temps de tour et **résultats de chaque course** dans une base **SQLite**
+- Présente l'information sur **deux onglets** : *Dernière course* (temps moyens + graphiques) et *Courses (saison)* (classement de chaque Grand Prix)
+- Génère des **graphiques interactifs** directement dans la fenêtre, avec les **couleurs officielles des écuries**
 
 ### Lancement
 
@@ -39,27 +53,43 @@ Application graphique développée avec **Tkinter** qui :
 python partie1_f1_app.py
 ```
 
-### Fonctionnalités
+### Interface à onglets
 
-#### Menu & Toolbar
+| Onglet | Contenu | Source en base |
+|--------|---------|----------------|
+| **Dernière course** | Classement par temps moyen au tour + zone graphique | table `lap_times` |
+| **🏁 Courses (saison)** | Menu déroulant des Grands Prix + classement final (position, pilote, équipe, temps/écart, statut) | table `race_results` |
+
+### Téléchargement unique
+
+Un **seul bouton 📥 Télécharger** remplit l'intégralité de la base en une opération :
+1. Récupère le calendrier 2024 et le **classement final de chaque course** (`/session_result`) → onglet *Courses*.
+2. Enchaîne avec les **tours détaillés de la dernière course** (`/laps`) → onglet *Dernière course* + graphiques.
+3. Rafraîchit automatiquement les deux onglets.
+
+Les données sont **persistantes** : au prochain lancement, l'onglet *Courses* est repeuplé automatiquement depuis la base (pas besoin de re-télécharger).
+
+### Menu & Toolbar
+
 | Bouton | Action |
 |--------|--------|
-| 📥 Télécharger | Récupère les données F1 depuis OpenF1 API |
-| 🗑️ Effacer DB | Supprime toutes les données de la base SQLite |
+| 📥 Télécharger | Télécharge TOUT : classements saison + tours de la dernière course |
+| 🗑️ Effacer DB | Supprime toutes les données (pilotes, tours, résultats) |
 | 📊 Graphique | Affiche le graphique des temps moyens par pilote |
 | 🏆 Meilleurs tours | Affiche le graphique des meilleurs tours par pilote |
-| 📈 Agrégation SQL | Affiche les statistiques calculées via requête SQL |
+| 📈 Agrégation SQL | Calcule des statistiques via requête SQL et les affiche **dans la fenêtre** |
 
 #### Menu Options
 - 🎨 **Couleur de fond** — personnalise la couleur de l'interface
 - 🔤 **Changer police** — modifie la famille et la taille de police
 
 #### Détails techniques
-- **API** : [OpenF1](https://openf1.org) — données F1 gratuites en temps réel
-- **Session ciblée** : dernière course Race de la saison 2024 (données garanties)
-- **Anti rate-limit** : pause de 2 secondes entre chaque appel de tours pilote
+- **API** : [OpenF1](https://openf1.org) — données F1 gratuites
+- **Endpoints utilisés** : `/sessions`, `/drivers`, `/laps`, `/session_result`
+- **Anti rate-limit** : helper `_api_get` avec **retry automatique sur erreur 429** (back-off progressif 5/10/15/20 s) + pause de 2,5 s entre chaque course
 - **Threading** : le téléchargement tourne en arrière-plan, l'UI reste réactive
 - **Status bar** : horodatage + statut de la dernière opération en bas de fenêtre
+- **Nom de GP** : helper `race_label` (fallback `country_name` → `location` → `circuit_short_name`)
 
 #### Base de données SQLite
 
@@ -81,7 +111,24 @@ CREATE TABLE lap_times (
     lap_duration  REAL,
     session_key   INTEGER
 );
+
+-- Table des résultats de course (classement final par GP)
+CREATE TABLE race_results (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_key   INTEGER,
+    race_label    TEXT,
+    date_start    TEXT,
+    position      INTEGER,
+    driver_number INTEGER,
+    full_name     TEXT,
+    team_name     TEXT,
+    status        TEXT,      -- DNF / DNS / DSQ / ""
+    duration      REAL,      -- temps total (vainqueur)
+    gap           TEXT       -- écart au leader (autres pilotes)
+);
 ```
+
+> 🔄 Une **migration douce** (`ALTER TABLE`) ajoute automatiquement les colonnes `duration` et `gap` aux bases créées avant cette version.
 
 ### Capture d'écran
 
@@ -163,11 +210,13 @@ Le rapport généré contient :
 
 Les deux scripts embarquent leurs propres tests unitaires, exécutables sans interface graphique.
 
-### Partie 1 — 8 tests
+### Partie 1 — 13 tests
 
 ```bash
 python partie1_f1_app.py --tests
 ```
+
+**Helpers (8)**
 
 | Test | Description |
 |------|-------------|
@@ -175,10 +224,20 @@ python partie1_f1_app.py --tests
 | `test_format_time_normal` | `format_time(90.123)` → `"1:30.123"` |
 | `test_format_time_none` | `format_time(None)` → `"—"` |
 | `test_format_time_sub_minute` | Vérification du format minute |
+| `test_race_label_fallback` | Fallbacks du nom de GP (country/location/session_key) |
+| `test_format_total` | Temps total H:MM:SS.mmm (gestion < 1h et > 1h) |
+| `test_format_gap` | Écart au leader (`+7.313`, texte brut `+1 LAP`, vide) |
+| `test_num_or_none` | Normalisation nombre / liste / None |
+
+**Base de données (5)**
+
+| Test | Description |
+|------|-------------|
 | `test_save_and_count` | Sauvegarde pilote + comptage DB |
 | `test_clear_db` | Vidage de la base |
 | `test_save_laps` | Sauvegarde tours + calcul moyenne |
 | `test_null_lap_ignored` | Les tours `None` sont ignorés |
+| `test_save_and_fetch_race_results` | Sauvegarde/lecture d'un classement (position, temps, statut DNF) |
 
 ### Partie 2 — 10 tests
 
@@ -205,8 +264,8 @@ python partie2_rapport_word.py --tests
 
 | Librairie | Usage |
 |-----------|-------|
-| `tkinter` | Interface graphique desktop (Partie 1) |
-| `sqlite3` | Base de données locale (Partie 1) |
+| `tkinter` | Interface graphique desktop, onglets `ttk.Notebook` (Partie 1) |
+| `sqlite3` | Base de données locale, 3 tables (Partie 1) |
 | `requests` | Appels API et téléchargements HTTP |
 | `matplotlib` | Génération de graphiques |
 | `Pillow` | Traitement d'images (recadrage, rotation, composition) |
