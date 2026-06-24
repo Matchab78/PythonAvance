@@ -1,3 +1,5 @@
+## Projet fait par Mathis Chabault et Tom Boulec
+
 ## ⚙️ Prérequis
 
 - **Python 3.10+**
